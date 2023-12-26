@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         摸鱼助手-知乎
 // @namespace    https://lichuanyang.top/
-// @version      1.0
+// @version      1.2
 // @description  摸鱼辅助工具，移除知乎log, 移除问题页面的大标题
 // @author       流沙
 // @match        https://www.zhihu.com/*
@@ -23,6 +23,9 @@
         display: none;
       }
       .css-olurbu img.content_image[data-size="normal"], .css-olurbu img.origin_image[data-size="normal"] {
+        width: 50%;
+      }
+      .css-1em8ozd img.content_image[data-size="normal"], .css-1em8ozd img.origin_image[data-size="normal"] {
         width: 50%;
       }
     `);
