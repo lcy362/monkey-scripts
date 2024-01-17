@@ -28,6 +28,9 @@
       .css-1em8ozd img.content_image[data-size="normal"], .css-1em8ozd img.origin_image[data-size="normal"] {
         width: 50%;
       }
+      .css-jflero img.content_image[data-size="normal"], .css-jflero img.origin_image[data-size="normal"] {
+        width: 50%;
+      }
     `);
 
 
