@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         摸鱼助手-知乎
 // @namespace    https://lichuanyang.top/
-// @version      2.0
+// @version      2.1
 // @description  摸鱼辅助工具，移除知乎logo, 移除问题页面的大标题
 // @author       流沙
 // @match        https://www.zhihu.com/*
@@ -16,14 +16,21 @@
     'use strict';
 
     GM_addStyle(`
-      /* 隐藏问题页面大标题 */
-      .QuestionHeader-title {
+      /* 隐藏问题页面大标题
+         - 旧版：.QuestionHeader-title
+         - 新版：.QuestionPage 内的主标题 h1（问题描述上方）
+         - 新版：.PageHeader 内滚动吸顶的标题 h1 */
+      .QuestionHeader-title,
+      .QuestionPage > div > h1,
+      .PageHeader h1 {
         display: none !important;
       }
 
       /* 隐藏知乎 logo（顶栏 + 其他区域） */
+      header a[aria-label="知乎"] svg,
       a[aria-label="知乎"] svg,
-      a[aria-label="首页"] svg {
+      a[aria-label="首页"] svg,
+      header a[href="https://www.zhihu.com"] svg {
         display: none !important;
       }
 

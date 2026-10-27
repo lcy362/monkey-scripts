@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         【知乎增强】评论时间精确到秒
 // @namespace    https://lichuanyang.top/
-// @version      1.1
-// @description  评论时间精确到秒
+// @version      1.3
+// @description  评论时间精确到秒（适配新版知乎评论接口 comment_v5）
 // @author       流沙
 // @match        https://www.zhihu.com/*
 // @match        https://zhuanlan.zhihu.com/*
@@ -553,9 +553,69 @@ var ajaxHooker = function() {
 
 (function () {
 	'use strict';
+
+	/* 评论接口：新版统一收敛到 /api/v4/comment_v5/ 下
+	   - 问题评论：comment_v5/questions/{id}/root_comment（新版新增，旧脚本未匹配，导致问题页失效）
+	   - 回答评论：comment_v5/answers/{id}/root_comment
+	   - 文章评论：comment_v5/articles/{id}/root_comment
+	   - 子评论  ：comment_v5/comment/{id}/child_comment */
+	const COMMENT_API = /\/api\/v4\/comment_v5\//;
+	const TIME_CLASS = 'commentTime';
+
+	/* 知乎自带的「相对时间/日期」文案，用于在内部类名失效时兜底隐藏 */
+	const ORIGINAL_TIME_RE = /^(刚刚|(\d+|[一两几])\s*(秒|分钟|小时|天|周|月|年)前|(今天|昨天|前天)\s*\d{1,2}:\d{2}|\d{1,2}-\d{1,2}|\d{4}-\d{1,2}-\d{1,2})$/;
+
+	const STYLE = `
+		/* 精确时间 */
+		.commentTime {
+			display: block;
+			margin-top: 6px;
+			color: #999;
+			font-size: 12px;
+			line-height: 1.2;
+		}
+
+		.CommentContent {
+			overflow: visible;
+		}
+
+		.css-140jo2 {
+			position: relative;
+		}
+
+		/* 原时间（知乎内部类名，改了也有脚本兜底隐藏） */
+		.css-12cl38p,
+		.css-12cl38p + span,
+		.css-nm6sok + span {
+			display: none !important;
+		}
+
+		/* ip属地 */
+		.css-ntkn7q {
+			position: absolute;
+			left: 160px;
+			top: 3px;
+		}
+		/* 热评 */
+		.css-8hxn0r .css-33kuns {
+			position: absolute;
+			left: 240px;
+			top: 3px;
+		}
+		/* 作者置顶 */
+		.css-1o87v1m {
+			position: absolute;
+			top: 22px;
+			left: -4px;
+		}
+	`;
+
+	function addZero(num) {
+		return num < 10 ? `0${ num }` : `${ num }`;
+	}
+
 	function timestampToTime(timestamp) {
-		const milliseconds = timestamp * 1000;
-		const date = new Date(milliseconds);
+		const date = new Date(timestamp * 1000);
 		const year = date.getFullYear();
 		const month = addZero(date.getMonth() + 1);
 		const day = addZero(date.getDate());
@@ -566,76 +626,92 @@ var ajaxHooker = function() {
 		return `${ year }-${ month }-${ day } ${ hour }:${ minute }:${ second }`;
 	}
 
-	function addZero(num) {
-		return num < 10 ? `0${ num }` : `${ num }`;
+	function addStyle(css) {
+		if (typeof GM_addStyle === 'function') {
+			GM_addStyle(css);
+			return;
+		}
+		const inject = () => {
+			const style = document.createElement('style');
+			style.textContent = css;
+			(document.head || document.documentElement).appendChild(style);
+		};
+		if (document.documentElement) {
+			inject();
+		} else {
+			document.addEventListener('readystatechange', inject, { once: true });
+		}
 	}
 
-	ajaxHooker.hook(request => {
-		if (request.url.includes("https://www.zhihu.com/api/v4/comment_v5/comment/") || request.url.includes("https://www.zhihu.com/api/v4/comment_v5/answers/") || request.url.includes("https://www.zhihu.com/api/v4/comment_v5/articles/")) {
-
-			request.response = res => {
-				// console.log('\n== ↓ ↓ ↓ ↓ ↓ == \n', res)
-
-				if (res.json.data) {
-
-					res.json.data.forEach(item => {
-						// console.log(timestampToTime(item.created_time));
-						item.content =  item.content +   '<span class="commentTime">' + timestampToTime(item.created_time) + '</span>'
-						if (item.child_comments.length >= 1) {
-							item.child_comments.forEach(child => {
-								child.content =   child.content  + '<span class="commentTime">' + timestampToTime(child.created_time) + '</<span>'
-							});
-						}
-					});
-					GM_addStyle(`
-					.CommentContent {
-							position: relative;
-							overflow: visible;
-						}
-
-						/* 	精确时间 */
-						.commentTime {
-							position: absolute;
-							left: 0;
-							bottom: -25px;
-							color: #999;
-						}
-
-						.css-140jo2 {
-							position: relative;
-						}
-
-						/* 原时间	 */
-						.css-12cl38p,
-						.css-12cl38p + span,
-						.css-nm6sok + span {
-							display: none;
-						}
-
-						/* ip属地	 */
-                        .css-ntkn7q {
-							position: absolute;
-							left: 160px;
-							top: 3px;
-						}
-						/* 热评	 */
-						.css-8hxn0r .css-33kuns {
-							position: absolute;
-							left: 240px;
-							top: 3px;
-						}
-						/*  作者置顶	 */
-						.css-1o87v1m{
-						    position: absolute;
-  						    top: 22px;
-   						    left: -4px;
-						}
-					`);
-				}
-
-			};
+	/* 把精确时间拼进评论内容里；子评论递归处理 */
+	function appendTime(comment) {
+		if (!comment || typeof comment.content !== 'string' || !comment.created_time) return false;
+		if (!comment.content.includes(TIME_CLASS)) {
+			comment.content += `<span class="${ TIME_CLASS }">${ timestampToTime(comment.created_time) }</span>`;
 		}
+		if (Array.isArray(comment.child_comments)) {
+			comment.child_comments.forEach(appendTime);
+		}
+		return true;
+	}
 
+	/* 兜底：按文案把知乎原本的时间元素隐藏掉（内部类名变动时仍然有效） */
+	function hideOriginalTime() {
+		document.querySelectorAll(`.${ TIME_CLASS }`).forEach(timeEl => {
+			const item = timeEl.closest('[data-id]');
+			const meta = item && item.querySelector('.css-140jo2');
+			if (!meta) return;
+			meta.querySelectorAll('span').forEach(span => {
+				if (span.children.length || span.style.display === 'none') return;
+				if (ORIGINAL_TIME_RE.test((span.textContent || '').trim())) {
+					span.style.display = 'none';
+				}
+			});
+		});
+	}
+
+	/* 评论渲染比接口返回稍晚，简单重试几次即可 */
+	function scheduleHideOriginalTime() {
+		[0, 300, 800, 1500].forEach(delay => setTimeout(hideOriginalTime, delay));
+	}
+
+	addStyle(STYLE);
+
+	ajaxHooker.hook(request => {
+		if (!COMMENT_API.test(request.url)) return;
+
+		request.response = res => {
+			let json = res.json;
+			let isText = false;
+
+			// fetch 拿到的是对象，XHR 拿到的是字符串，两种都兼容
+			if (!json || typeof json !== 'object') {
+				if (typeof res.responseText !== 'string' || !res.responseText) return;
+				try {
+					json = JSON.parse(res.responseText);
+				} catch (err) {
+					return;
+				}
+				isText = true;
+			}
+
+			if (!json || !Array.isArray(json.data)) return;
+
+			let patched = false;
+			json.data.forEach(item => {
+				if (appendTime(item)) patched = true;
+			});
+
+			if (!patched) return;
+			if (isText) {
+				try {
+					res.responseText = JSON.stringify(json);
+				} catch (err) {
+					/* ignore */
+				}
+			}
+			scheduleHideOriginalTime();
+		};
 	});
 
 })();
