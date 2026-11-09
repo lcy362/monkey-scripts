@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Mutual Follow Badge
 // @namespace    https://lichuanyang.top/
-// @version      1.9
+// @version      2.0
 // @description  Mark your follow relationship with every tweet author on X: blue check for mutual follows, green check when you don't follow them, red cross when they never followed back.
 // @author       流沙 (Liusha)
 // @match        https://x.com/*
@@ -20,6 +20,7 @@
 
   /* ============ 可调参数 ============ */
   const CONFIG = {
+    onlyVerified: true,                 // 只查询带认证标（蓝标 / X Premium）的账号，普通账号忽略
     showUnfollowed: true,               // 是否显示「双方互不关注」的绿勾，关掉可减少干扰
     cacheTTL: 6 * 60 * 60 * 1000,       // 关注关系缓存时长
     errorTTL: 10 * 60 * 1000,           // 请求失败后的冷却时长（期间不重试）
@@ -727,6 +728,15 @@
     });
   }
 
+  // 认证标（蓝标 / X Premium）在用户名行里是一个 icon-verified 图标
+  function hasVerifiedBadge(userName) {
+    if (userName.querySelector('[data-testid="icon-verified"]')) return true;
+    // 个别版本没有 testid，退化为按 aria-label 判断
+    const icon = userName.querySelector('svg[aria-label]');
+    if (!icon) return false;
+    return /verif|认证|認證/i.test(icon.getAttribute('aria-label') || '');
+  }
+
   function extractHandle(userName) {
     const links = userName.querySelectorAll('a[href^="/"]');
     for (let i = 0; i < links.length; i += 1) {
@@ -784,6 +794,8 @@
     }
     const userName = article.querySelector('[data-testid="User-Name"]');
     if (!userName) return;
+    // 只处理带认证标（蓝标 / X Premium）的账号，普通账号直接忽略
+    if (CONFIG.onlyVerified && !hasVerifiedBadge(userName)) return;
     const handle = extractHandle(userName);
     if (!handle) return;
     if (handle === myHandle()) {
