@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Mutual Follow Badge
 // @namespace    https://lichuanyang.top/
-// @version      1.8
+// @version      1.9
 // @description  Mark your follow relationship with every tweet author on X: blue check for mutual follows, green check when you don't follow them, red cross when they never followed back.
 // @author       流沙 (Liusha)
 // @match        https://x.com/*
@@ -23,8 +23,10 @@
     showUnfollowed: true,               // 是否显示「双方互不关注」的绿勾，关掉可减少干扰
     cacheTTL: 6 * 60 * 60 * 1000,       // 关注关系缓存时长
     errorTTL: 10 * 60 * 1000,           // 请求失败后的冷却时长（期间不重试）
-    concurrency: 2,                     // 并发请求数
-    minInterval: 400,                   // 两次接口请求的最小间隔（毫秒）
+    concurrency: 1,                     // 同时只允许一个请求在飞
+    minInterval: 1500,                  // 两次接口请求的最小间隔（毫秒）
+    maxPerMinute: 20,                   // 每分钟最多发起多少次查询
+    viewDelay: 800,                     // 帖子在视野里停留超过这个时长才去查（毫秒）
     rateLimitPause: 2 * 60 * 1000,      // 被 429 限流后暂停时长
   };
 
@@ -552,6 +554,7 @@
   /* ============ 请求队列 ============ */
   const waiting = new Map();   // handle -> Set<article>
   const queue = [];
+  const recentStarts = [];     // 最近一分钟内的请求时间戳，用于每分钟上限
   let active = 0;
   let lastStart = 0;
   let pausedUntil = 0;
@@ -562,19 +565,35 @@
     pump();
   }
 
+  function minuteQuotaWait() {
+    const now = Date.now();
+    while (recentStarts.length && now - recentStarts[0] > 60000) recentStarts.shift();
+    if (recentStarts.length < CONFIG.maxPerMinute) return 0;
+    return recentStarts[0] + 60000 - now;
+  }
+
   function pump() {
-    if (pausedUntil > Date.now()) {
+    // 标签页在后台时不发请求，切回来再继续
+    if (document.visibilityState === 'hidden') {
       if (!pumpTimer) {
-        pumpTimer = setTimeout(() => { pumpTimer = 0; pump(); }, pausedUntil - Date.now());
+        pumpTimer = setTimeout(() => { pumpTimer = 0; pump(); }, 15000);
+      }
+      return;
+    }
+    const wait = Math.max(pausedUntil - Date.now(), minuteQuotaWait());
+    if (wait > 0) {
+      if (!pumpTimer) {
+        pumpTimer = setTimeout(() => { pumpTimer = 0; pump(); }, wait);
       }
       return;
     }
     while (active < CONFIG.concurrency && queue.length) {
       const handle = queue.shift();
-      const wait = Math.max(0, lastStart + CONFIG.minInterval - Date.now());
-      lastStart = Date.now() + wait;
+      const delay = Math.max(0, lastStart + CONFIG.minInterval - Date.now());
+      lastStart = Date.now() + delay;
+      recentStarts.push(lastStart);
       active += 1;
-      setTimeout(() => { run(handle); }, wait);
+      setTimeout(() => { run(handle); }, delay);
     }
   }
 
@@ -589,6 +608,75 @@
       active -= 1;
       paint(handle);
       pump();
+    }
+  }
+
+  /* ============ 可见性：帖子真正进视野才查 ============ */
+  const lookupTimers = new WeakMap();
+  const observed = new Set();
+  let viewObserver = null;
+
+  // 帖子进入视野后先等 viewDelay，滚走了就取消，等于只查“停下来看的”
+  function scheduleLookup(article, handle) {
+    if (lookupTimers.has(article)) return;
+    if (readRelation(handle) || !shouldRequest(handle)) {
+      paintArticle(article, handle);
+      return;
+    }
+    const timer = setTimeout(() => {
+      lookupTimers.delete(article);
+      if (!article.isConnected) return;
+      enqueue(handle);
+    }, CONFIG.viewDelay);
+    lookupTimers.set(article, timer);
+  }
+
+  function cancelLookup(article) {
+    const timer = lookupTimers.get(article);
+    if (!timer) return;
+    clearTimeout(timer);
+    lookupTimers.delete(article);
+  }
+
+  function observeArticle(article) {
+    if (!viewObserver || observed.has(article)) return;
+    observed.add(article);
+    viewObserver.observe(article);
+  }
+
+  function pruneObserved() {
+    if (!viewObserver || !observed.size) return;
+    observed.forEach(article => {
+      if (article.isConnected) return;
+      viewObserver.unobserve(article);
+      observed.delete(article);
+      cancelLookup(article);
+    });
+  }
+
+  if (typeof IntersectionObserver === 'function') {
+    viewObserver = new IntersectionObserver(entries => {
+      for (let i = 0; i < entries.length; i += 1) {
+        const entry = entries[i];
+        const article = entry.target;
+        const handle = article.dataset.xmbHandle;
+        if (!handle) continue;
+        if (entry.isIntersecting) scheduleLookup(article, handle);
+        else cancelLookup(article);
+      }
+    }, { threshold: 0 });
+  }
+
+  // 从后台切回前台时，把当前视口里的帖子重新纳入检查
+  function kickVisible() {
+    const list = document.querySelectorAll('article[data-testid="tweet"]');
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    for (let i = 0; i < list.length; i += 1) {
+      const article = list[i];
+      const handle = article.dataset.xmbHandle;
+      if (!handle) continue;
+      const rect = article.getBoundingClientRect();
+      if (rect.bottom > 0 && rect.top < vh) scheduleLookup(article, handle);
     }
   }
 
@@ -686,7 +774,14 @@
     if (!article) return;
     const badge = article.querySelector('.xmb-badge');
     // 已经处理过、且角标还在（X 重渲染可能把它冲掉，这时需要重挂）
-    if (article.dataset.xmbScan === '1' && badge) return;
+    if (article.dataset.xmbScan === '1' && badge) {
+      // 少数情况下 X 的虚拟列表会复用节点：作者换了就把角标摘掉重来
+      const node = article.querySelector('[data-testid="User-Name"]');
+      const current = node ? extractHandle(node) : null;
+      if (!current || current === article.dataset.xmbHandle) return;
+      badge.remove();
+      delete article.dataset.xmbScan;
+    }
     const userName = article.querySelector('[data-testid="User-Name"]');
     if (!userName) return;
     const handle = extractHandle(userName);
@@ -710,6 +805,9 @@
 
     if (readRelation(handle)) {
       paintArticle(article, handle);
+    } else if (viewObserver && shouldRequest(handle)) {
+      // 先挂到可见性观察器上，真正滚进视野再查
+      observeArticle(article);
     } else if (shouldRequest(handle)) {
       enqueue(handle);
     } else {
@@ -720,6 +818,7 @@
   function scan() {
     const list = document.querySelectorAll('article[data-testid="tweet"]');
     for (let i = 0; i < list.length; i += 1) processArticle(list[i]);
+    pruneObserved();
   }
 
   /* ============ 启动 ============ */
@@ -780,6 +879,11 @@
     }
     // 兜底：X 的虚拟列表偶尔不会触发新增节点
     setInterval(scan, 2000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      kickVisible();
+      pump();
+    });
     debug('已启动');
   }
 
