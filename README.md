@@ -8,7 +8,7 @@
 |---|---|
 | `zhihu_comment_time.user.js` | [482871 · 【知乎增强】评论时间精确到秒](https://greasyfork.org/zh-CN/scripts/482871) |
 | `slack.user.js` | [483047 · 摸鱼助手-知乎](https://greasyfork.org/zh-CN/scripts/483047) |
-| `x_mutual_follow.user.js` | 待发布 · X 互浇助手（帖子旁色块标注：互关蓝勾 / 你未关注绿勾 / 对方没回关红叉） |
+| `x_mutual_follow.user.js` | [604474 · X Mutual Follow Badge](https://greasyfork.org/zh-CN/scripts/604474) |
 
 ## 发布流程
 
