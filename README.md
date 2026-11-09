@@ -33,4 +33,10 @@ https://raw.githubusercontent.com/lcy362/monkey-scripts/main/x_mutual_follow.use
 Violentmonkey 靠 `@version` 比较决定是否升级，所以**不会有任何人拿到这次更新**。
 结论：必须递增 `@version`，否则等于白发一版。
 
+关于附加信息（Additional info）：它**不随代码同步**，同步生成的新版本会继承上一版的附加信息。
+要改附加信息，只能手动在 Greasyfork 发布新版本，且版本号必须大于站上已有的最新版本——
+而 `@version` 一旦被 webhook 同步抢先创建，同号的手动发布会因「版本号未递增」失败。
+所以正确顺序是：**先本地改好 `@version`（先不 push）→ 网页手动发布该版本 → 再 push**，
+这样紧随其后的同步会判定代码逐字节相同，保持 `:unchanged`，不会覆盖刚填的附加信息。
+
 > 仓库一旦私有化，Greasyfork 将无法读取 raw 文件，同步和 webhook 都会失效。
