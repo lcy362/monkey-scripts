@@ -1,10 +1,8 @@
 // ==UserScript==
 // @name         X Mutual Follow Badge
-// @name:zh-CN   X 互浇助手
 // @namespace    https://lichuanyang.top/
-// @version      1.3
+// @version      1.4
 // @description  Mark your follow relationship with every tweet author on X: blue check for mutual follows, green check when you don't follow them, red cross when they never followed back.
-// @description:zh-CN  刷 X 时在帖子旁用色块标注关注关系：互关蓝勾、你还没关注绿勾、对方没回关红叉，悬停提示取 X 自己的语言包
 // @author       流沙 (Liusha)
 // @match        https://x.com/*
 // @match        https://twitter.com/*
