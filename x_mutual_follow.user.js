@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Mutual Follow Badge
 // @namespace    https://lichuanyang.top/
-// @version      1.4
+// @version      1.5
 // @description  Mark your follow relationship with every tweet author on X: blue check for mutual follows, green check when you don't follow them, red cross when they never followed back.
 // @author       流沙 (Liusha)
 // @match        https://x.com/*
